@@ -5,6 +5,73 @@
 
 ---
 
+## New in v4.0 — Feature Summary
+
+### Phase 1: Self-Update Checker
+```bash
+oxm update                      # Check for updates (prompts to install)
+```
+Auto-checks once per 24 hours on every invocation (except `oxm repl`/`oxm update`).
+Override the manifest URL with `OXM_VERSION_URL` env var.
+
+### Phase 2: Package Uninstall + Version Tracking
+```bash
+oxm pkg uninstall <name>        # Alias for `oxm pkg remove` (Phase 2)
+oxm pkg list                    # Shows version info from installed.json
+```
+Installed packages are tracked in `~/.oxm/lib/installed.json` with:
+`{ "name": { "version": "1.2.3", "source": "url|path|registry", "installed_at": "..." } }`
+
+### Phase 3: Registry Server
+```bash
+cd registry_server && python app.py    # Start the registry
+```
+Flask + SQLite registry at `http://localhost:5001`. Endpoints:
+`POST /auth/register` · `POST /auth/login` · `POST /publish` ·
+`GET /packages/<name>` · `GET /packages/<name>/<version>/download` · `GET /search`
+
+### Phase 4: CLI ↔ Registry Integration
+```bash
+export OXM_REGISTRY_URL=http://localhost:5001
+oxm pkg login                   # Log in to registry (stores token in ~/.oxm/credentials)
+oxm pkg publish                 # Publish current directory as a package
+oxm pkg install my-pkg          # Install from registry by name
+oxm pkg install my-pkg --version 1.2.0
+oxm pkg search math             # Search registry + local packages
+```
+
+### Phase 5: Strict Type-Checking Mode
+```ox
+#strict                         # First-line pragma — enable strict mode for this file
+```
+```bash
+oxm run --strict script.ox      # --strict flag on CLI
+oxm check --strict script.ox    # Type-check only, strict mode
+```
+In strict mode: typechecker warnings → compile-time errors. Script does not run if
+any type inconsistency is found.
+
+### Phase 6: Cooperative Async Scheduler
+```ox
+fn work(n)  return n * n  end
+
+let h1 = spawn(work, 5)         # Enqueues task (doesn't run yet)
+let h2 = spawn(work, 10)        # Enqueues another
+let r1 = await h1               # Drains ALL pending tasks, returns h1 result
+let r2 = await h2               # h2 already done; just returns result
+
+# gather() — await all at once
+let results = gather([spawn(work, 2), spawn(work, 3)])   # → [4, 9]
+
+async fn fetch(url)             # async fn syntax sugar
+  return "data from " + url
+end
+
+task_done(h)                    # bool: has this task completed?
+```
+
+---
+
 ## 1. Variables & Types
 
 ```oxm
@@ -719,3 +786,76 @@ assert_eq(len([1,2,3]),  3,    "array length")
 | Filter list             | `filter(list, fn(x) { x > 0 })`                  |
 | Map list                | `map(list, fn(x) { x * 2 })`                     |
 | Reduce list             | `reduce(list, fn(acc,x) { acc+x }, 0)`            |
+
+---
+
+## Phase 2 — New Functions
+
+### PC Automation Extended (Block 1)
+| Function | Example |
+|---|---|
+| `mouse_right_click(x, y)` | `mouse_right_click(100, 200)` |
+| `mouse_double_click(x, y)` | `mouse_double_click(300, 400)` |
+| `mouse_drag(x1,y1,x2,y2)` | `mouse_drag(0,0,500,500)` |
+| `mouse_scroll_up(n)` | `mouse_scroll_up(3)` |
+| `mouse_scroll_down(n)` | `mouse_scroll_down(5)` |
+| `mouse_position()` | `let p = mouse_position()` → `{x, y}` |
+| `keyboard_hotkey(combo)` | `keyboard_hotkey("ctrl+c")` |
+| `screen_screenshot(path)` | `screen_screenshot("shot.png")` |
+| `screen_screenshot_region(x,y,w,h,path)` | `screen_screenshot_region(0,0,800,600,"region.png")` |
+| `screen_pixel(x, y)` | `let px = screen_pixel(10,10)` → `{r,g,b,a}` |
+| `window_list()` | `let wins = window_list()` → array of `{title, hwnd}` |
+| `window_find(pattern)` | `window_find("Chrome")` |
+| `window_focus(title)` | `window_focus("Notepad")` |
+| `window_minimize(title)` | `window_minimize("Notepad")` |
+| `window_maximize(title)` | `window_maximize("Notepad")` |
+| `window_close(title)` | `window_close("Notepad")` |
+
+### Redis (Block 8)
+```oxm
+let r = redis_connect("127.0.0.1", 6379)
+redis_ping(r)                          -- "PONG"
+redis_set(r, "key", "value")
+redis_get(r, "key")                    -- "value"
+redis_set_ex(r, "tmp", "val", 60)     -- expire in 60s
+redis_del(r, "key")
+redis_exists(r, "key")                 -- true/false
+redis_expire(r, "key", 120)
+redis_incr(r, "counter")              -- atomic increment
+redis_lpush(r, "list", "item")
+redis_rpush(r, "list", "item")
+redis_lrange(r, "list", 0, -1)        -- full list
+redis_llen(r, "list")
+redis_hset(r, "hash", "field", "val")
+redis_hget(r, "hash", "field")
+redis_hgetall(r, "hash")              -- map
+redis_hdel(r, "hash", "field")
+redis_keys(r, "prefix*")             -- matching keys
+redis_flushdb(r)
+redis_close(r)
+```
+
+### Network Tools (Block 12)
+```oxm
+net_port_open("127.0.0.1", 80, 1000)  -- bool
+net_local_ip()                          -- "192.168.x.x"
+net_public_ip()                         -- "1.2.3.4"
+net_dns_lookup("example.com")           -- first IP
+net_dns_lookup_all("google.com")        -- array of IPs
+net_ping("127.0.0.1")                   -- bool
+net_hostname()                          -- machine hostname
+net_download("https://url", "file.bin") -- bytes written
+
+-- Raw TCP client
+let h = tcp_connect("host", 80)
+tcp_connect_timeout("host", 80, 5000)
+tcp_send(h, "GET / HTTP/1.0\r\n\r\n")
+tcp_recv(h, 4096)
+tcp_recv_line(h)
+tcp_set_timeout(h, 5000, 5000)
+tcp_close(h)
+
+-- UDP
+udp_send("host", 9000, "data")
+udp_recv(9000, 5000)
+```
